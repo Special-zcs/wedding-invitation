@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-secondary text-text antialiased;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+}
+
+.font-serif {
+  font-family: 'Playfair Display', serif; /* 稍后可能需要引入字体 */
+}
