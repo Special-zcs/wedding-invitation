@@ -52,45 +52,47 @@ const DanmakuLayer = () => {
   useEffect(() => {
     if (!isDanmakuEnabled || wishes.length === 0) return;
 
-    // Initial burst if empty
-    if (activeDanmaku.length === 0) {
+    const burstTimer = setTimeout(() => {
+      setActiveDanmaku((prev) => {
+        if (prev.length > 0) return prev;
         const initialCount = Math.min(3, wishes.length);
-        const initial = Array.from({ length: initialCount }).map((_, i) => ({
-            id: Date.now() + i,
-            text: wishes[i % wishes.length],
-            style: {
-                top: `${Math.random() * 60 + 10}%`, // Top 10% to 70%
-                fontSize: `${Math.random() * 0.5 + 1}rem`,
-                color: Math.random() > 0.5 ? '#e8a8bf' : '#d4af37',
-                duration: Math.random() * 5 + 10, // 10-15s
-            }
+        return Array.from({ length: initialCount }).map((_, i) => ({
+          id: Date.now() + i,
+          text: wishes[i % wishes.length],
+          style: {
+            top: `${Math.random() * 60 + 10}%`,
+            fontSize: `${Math.random() * 0.5 + 1}rem`,
+            color: Math.random() > 0.5 ? '#e8a8bf' : '#d4af37',
+            duration: Math.random() * 5 + 10,
+          }
         }));
-        setActiveDanmaku(initial);
-    }
+      });
+    }, 0);
 
     const interval = setInterval(() => {
-      if (activeDanmaku.length > 15) return; // Limit max count
-
-      const randomWish = wishes[Math.floor(Math.random() * wishes.length)];
-      const id = Date.now() + Math.random();
-      
-      const newItem = {
-        id,
-        text: randomWish,
-        style: {
-          top: `${Math.random() * 60 + 10}%`,
-          fontSize: `${Math.random() * 0.5 + 1}rem`,
-          color: Math.random() > 0.5 ? '#e8a8bf' : '#d4af37',
-          duration: Math.random() * 5 + 10,
-        }
-      };
-
-      setActiveDanmaku(prev => [...prev, newItem]);
-
+      setActiveDanmaku((prev) => {
+        if (prev.length > 15) return prev;
+        const randomWish = wishes[Math.floor(Math.random() * wishes.length)];
+        const id = Date.now() + Math.random();
+        const newItem = {
+          id,
+          text: randomWish,
+          style: {
+            top: `${Math.random() * 60 + 10}%`,
+            fontSize: `${Math.random() * 0.5 + 1}rem`,
+            color: Math.random() > 0.5 ? '#e8a8bf' : '#d4af37',
+            duration: Math.random() * 5 + 10,
+          }
+        };
+        return [...prev, newItem];
+      });
     }, 2000);
 
-    return () => clearInterval(interval);
-  }, [isDanmakuEnabled, wishes]); // Removed activeDanmaku dependency to avoid interval reset
+    return () => {
+      clearInterval(interval);
+      clearTimeout(burstTimer);
+    };
+  }, [isDanmakuEnabled, wishes]);
 
   const removeDanmaku = (id) => {
     setActiveDanmaku(prev => prev.filter(item => item.id !== id));

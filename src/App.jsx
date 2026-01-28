@@ -11,6 +11,8 @@ import { motion, useScroll, useSpring } from 'framer-motion';
 import { ConfigProvider, useConfig } from './context/ConfigContext';
 import { DanmakuProvider } from './context/DanmakuContext';
 
+const MotionDiv = motion.div;
+
 // Inner component to use the context
 const AppContent = () => {
   const { config } = useConfig();
@@ -35,7 +37,7 @@ const AppContent = () => {
   return (
     <div className="relative min-h-screen font-sans selection:bg-primary/30 text-text bg-secondary/30">
       {/* Progress Bar */}
-      <motion.div
+      <MotionDiv
         className="fixed top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-300 to-primary origin-left z-50"
         style={{ scaleX }}
       />

@@ -4,6 +4,8 @@ import { Send, Heart, Share2, Facebook, Twitter, Link as LinkIcon } from 'lucide
 import { useConfig } from '../context/ConfigContext';
 import { useDanmaku } from '../context/DanmakuContext';
 
+const MotionDiv = motion.div;
+
 const Wishes = () => {
   const { config } = useConfig();
   const { wishes } = config;
@@ -48,18 +50,18 @@ const Wishes = () => {
   return (
     <section className="py-20 bg-gradient-to-b from-white to-secondary/30 text-center px-4" id="wishes">
       <div className="max-w-3xl mx-auto">
-        <motion.div
+        <MotionDiv
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
         >
             <h2 className="text-3xl md:text-5xl font-serif text-gray-800 mb-4">{wishes.title}</h2>
             <p className="text-gray-500 mb-12">{wishes.subtitle}</p>
-        </motion.div>
+        </MotionDiv>
 
         <div className="grid md:grid-cols-2 gap-12 items-start">
             {/* Quote / Info */}
-            <motion.div 
+            <MotionDiv 
                 className="text-left bg-white p-8 rounded-2xl shadow-sm border border-gray-100"
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
@@ -87,7 +89,7 @@ const Wishes = () => {
                      
                      <AnimatePresence>
                         {showShare && (
-                            <motion.div 
+                            <MotionDiv 
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
@@ -96,14 +98,14 @@ const Wishes = () => {
                                 <button onClick={() => handleShare('facebook')} className="p-2 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition-colors"><Facebook size={20}/></button>
                                 <button onClick={() => handleShare('twitter')} className="p-2 bg-sky-100 text-sky-500 rounded-full hover:bg-sky-200 transition-colors"><Twitter size={20}/></button>
                                 <button onClick={() => handleShare('copy')} className="p-2 bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors"><LinkIcon size={20}/></button>
-                            </motion.div>
+                            </MotionDiv>
                         )}
                      </AnimatePresence>
                 </div>
-            </motion.div>
+            </MotionDiv>
 
             {/* Form */}
-            <motion.div 
+            <MotionDiv 
                 className="bg-white p-8 rounded-2xl shadow-lg border-t-4 border-primary"
                 initial={{ opacity: 0, x: 20 }}
                 whileInView={{ opacity: 1, x: 0 }}
@@ -142,7 +144,8 @@ const Wishes = () => {
                         </button>
                     </form>
                 ) : (
-                    <motion.div 
+                
+                    <MotionDiv 
                         initial={{ scale: 0.8, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         className="text-center py-12"
@@ -158,9 +161,9 @@ const Wishes = () => {
                         >
                             Send another message
                         </button>
-                    </motion.div>
+                    </MotionDiv>
                 )}
-            </motion.div>
+            </MotionDiv>
         </div>
       </div>
     </section>

@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import { useConfig } from '../context/ConfigContext';
 
+const MotionDiv = motion.div;
+
 const Story = () => {
   const { config } = useConfig();
   const { story } = config;
@@ -8,7 +10,7 @@ const Story = () => {
   return (
     <section className="py-24 bg-secondary/50 overflow-hidden" id="story">
       <div className="max-w-4xl mx-auto px-4">
-        <motion.div 
+        <MotionDiv 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -16,7 +18,7 @@ const Story = () => {
         >
              <h2 className="text-3xl md:text-5xl font-serif text-gray-800 mb-4">{story.title}</h2>
              <p className="text-gray-500">{story.subtitle}</p>
-        </motion.div>
+        </MotionDiv>
 
         <div className="relative">
            {/* Center Line */}
@@ -24,7 +26,7 @@ const Story = () => {
            <div className="absolute left-4 top-0 bottom-0 w-px bg-gradient-to-b from-primary/0 via-primary/40 to-primary/0 md:hidden"></div>
           
           {story.events.map((event, index) => (
-            <motion.div 
+            <MotionDiv 
               key={index}
               initial={{ opacity: 0, y: 50 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -54,7 +56,7 @@ const Story = () => {
               <div className="absolute left-4 md:left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-4 border-primary rounded-full z-10 shadow-sm mt-8 md:mt-0"></div>
               
               <div className="flex-1 hidden md:block"></div> {/* Spacer */}
-            </motion.div>
+            </MotionDiv>
           ))}
         </div>
       </div>

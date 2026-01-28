@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { siteConfig as initialConfig } from '../config/siteConfig';
 
 const ConfigContext = createContext();

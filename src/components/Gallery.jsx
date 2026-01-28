@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'; 
 import { useConfig } from '../context/ConfigContext';
 
+const MotionDiv = motion.div;
+
 const Gallery = () => {
   const { config } = useConfig();
   const { gallery } = config;
@@ -16,7 +18,7 @@ const Gallery = () => {
   return (
     <section className="py-24 px-4 bg-white" id="gallery">
       <div className="max-w-7xl mx-auto">
-        <motion.div 
+        <MotionDiv 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -24,12 +26,12 @@ const Gallery = () => {
         >
             <h2 className="text-3xl md:text-5xl font-serif text-gray-800 mb-4">{gallery.title}</h2>
             <p className="text-gray-500 max-w-2xl mx-auto">{gallery.subtitle}</p>
-        </motion.div>
+        </MotionDiv>
 
         {viewMode === 'grid' ? (
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
              {gallery.images.map((img, index) => (
-               <motion.div
+               <MotionDiv
                  key={index}
                  layoutId={`image-${index}`}
                  onClick={() => setSelectedId(index)}
@@ -51,7 +53,7 @@ const Gallery = () => {
                   loading="lazy" 
                   referrerPolicy="no-referrer"
                 />
-               </motion.div>
+               </MotionDiv>
              ))}
            </div>
         ) : (
@@ -74,7 +76,7 @@ const Gallery = () => {
               className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
               onClick={() => setSelectedId(null)}
             >
-              <motion.div
+              <MotionDiv
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -83,9 +85,9 @@ const Gallery = () => {
                   <button className="p-2 bg-white/10 rounded-full hover:bg-white/20 text-white transition-colors">
                       <X size={24} />
                   </button>
-              </motion.div>
+              </MotionDiv>
               
-              <motion.div
+              <MotionDiv
                 layoutId={`image-${selectedId}`}
                 className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center rounded-lg"
                 onClick={(e) => e.stopPropagation()}
@@ -96,7 +98,7 @@ const Gallery = () => {
                   className="max-w-full max-h-[80vh] object-contain shadow-2xl rounded-sm" 
                   referrerPolicy="no-referrer"
                 />
-                <motion.div 
+                <MotionDiv 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.2 }}
@@ -104,8 +106,8 @@ const Gallery = () => {
                 >
                     <h3 className="text-white text-2xl font-serif">{gallery.images[selectedId].caption}</h3>
                     <p className="text-white/60">{gallery.images[selectedId].date}</p>
-                </motion.div>
-              </motion.div>
+                </MotionDiv>
+              </MotionDiv>
 
               {/* Navigation buttons for Lightbox */}
               <button 

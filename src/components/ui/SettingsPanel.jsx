@@ -1,8 +1,48 @@
 import { useState } from 'react';
-import { Settings, X, Save, RotateCcw, Trash2, MessageSquare, Layout, Image as ImageIcon, Plus, BookHeart } from 'lucide-react';
+import { Settings, X, Save, RotateCcw, Trash2, MessageSquare, Layout, Image as ImageIcon, Plus, BookHeart, Upload } from 'lucide-react';
 import { useConfig } from '../../context/ConfigContext';
 import { useDanmaku } from '../../context/DanmakuContext';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const MotionDiv = motion.div;
+
+// Helper component for image input with file upload support
+const ImageInput = ({ label, value, onChange, placeholder, className }) => {
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onChange(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  return (
+    <div className={className}>
+      {label && <label className="block text-sm text-gray-600 mb-1">{label}</label>}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 p-2 border rounded focus:ring-primary focus:border-primary outline-none text-sm"
+          placeholder={placeholder}
+        />
+        <label className="cursor-pointer p-2 bg-gray-50 hover:bg-gray-100 border rounded flex items-center justify-center transition-colors text-gray-600 hover:text-primary" title="Upload Image">
+          <Upload size={18} />
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+        </label>
+      </div>
+    </div>
+  );
+};
 
 const SettingsPanel = () => {
   const { config, updateConfig, resetConfig } = useConfig();
@@ -137,14 +177,14 @@ const SettingsPanel = () => {
       <AnimatePresence>
         {isOpen && (
           <>
-            <motion.div
+            <MotionDiv
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsOpen(false)}
               className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm"
             />
-            <motion.div
+            <MotionDiv
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
@@ -260,12 +300,10 @@ const SettingsPanel = () => {
                           {localConfig.theme.animation.enableParticles && (
                             <div className="pl-6 space-y-3 border-l-2 border-gray-100">
                               <div>
-                                  <label className="block text-sm text-gray-600 mb-1">Particle Image URL</label>
-                                  <input
-                                    type="text"
+                                  <ImageInput
+                                    label="Particle Image URL"
                                     value={localConfig.theme.animation.particleImage || ''}
-                                    onChange={(e) => updateField('theme.animation.particleImage', e.target.value)}
-                                    className="w-full p-2 border rounded focus:ring-primary focus:border-primary outline-none text-sm"
+                                    onChange={(val) => updateField('theme.animation.particleImage', val)}
                                     placeholder="https://example.com/heart.png"
                                   />
                                   <p className="text-xs text-gray-400 mt-1">Leave empty for circles</p>
@@ -336,15 +374,11 @@ const SettingsPanel = () => {
                                                  <img src={event.image} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                              </div>
                                              <div className="flex-1 space-y-2">
-                                                 <div>
-                                                     <label className="block text-xs text-gray-500 mb-1">Image URL</label>
-                                                     <input 
-                                                         type="text" 
-                                                         value={event.image}
-                                                         onChange={(e) => updateStoryEvent(index, 'image', e.target.value)}
-                                                         className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none"
-                                                     />
-                                                 </div>
+                                                 <ImageInput
+                                                     label="Image URL"
+                                                     value={event.image}
+                                                     onChange={(val) => updateStoryEvent(index, 'image', val)}
+                                                 />
                                              </div>
                                          </div>
                                          
@@ -429,15 +463,11 @@ const SettingsPanel = () => {
                                                  <img src={img.src} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                              </div>
                                              <div className="flex-1 space-y-2">
-                                                 <div>
-                                                     <label className="block text-xs text-gray-500 mb-1">Image URL</label>
-                                                     <input 
-                                                         type="text" 
-                                                         value={img.src}
-                                                         onChange={(e) => updateGalleryImage(index, 'src', e.target.value)}
-                                                         className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none"
-                                                     />
-                                                 </div>
+                                                 <ImageInput
+                                                     label="Image URL"
+                                                     value={img.src}
+                                                     onChange={(val) => updateGalleryImage(index, 'src', val)}
+                                                 />
                                              </div>
                                          </div>
                                          
@@ -542,7 +572,7 @@ const SettingsPanel = () => {
                     </button>
                   </div>
               )}
-            </motion.div>
+            </MotionDiv>
           </>
         )}
       </AnimatePresence>

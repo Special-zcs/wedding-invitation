@@ -3,6 +3,8 @@ import { Heart } from 'lucide-react';
 import { useConfig } from '../context/ConfigContext';
 import Countdown from './ui/Countdown';
 
+const MotionDiv = motion.div;
+
 const Hero = () => {
   const { config } = useConfig();
   const { hero } = config;
@@ -46,27 +48,27 @@ const Hero = () => {
   return (
     <section className="h-screen w-full relative overflow-hidden flex items-center justify-center text-center">
       {/* Background Image with Overlay */}
-      <motion.div 
+      <MotionDiv 
         style={{ y, opacity, scale }}
         className="absolute inset-0 z-0"
       >
-        <motion.div
+        <MotionDiv
             className="w-full h-full bg-cover bg-center"
             style={{ backgroundImage: `url(${hero.bgImage})` }}
             variants={bgVariants}
             animate={hero.bgAnimation?.type || 'zoom'}
         />
         <div className="absolute inset-0 bg-black/40"></div>
-      </motion.div>
+      </MotionDiv>
 
       {/* Content */}
-      <motion.div
+      <MotionDiv
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 1.2, ease: "easeOut" }}
         className="z-10 relative px-4 max-w-4xl mx-auto text-white"
       >
-        <motion.div
+        <MotionDiv
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.2, duration: 0.8 }}
@@ -75,7 +77,7 @@ const Hero = () => {
              <div className="p-4 border-2 border-white/30 rounded-full bg-white/10 backdrop-blur-sm">
                 <Heart className="w-10 h-10 md:w-12 md:h-12 text-pink-200 fill-pink-200/50" />
              </div>
-        </motion.div>
+        </MotionDiv>
 
         <h2 className="text-lg md:text-2xl text-pink-100 mb-4 tracking-[0.3em] uppercase font-light drop-shadow-md">
             {hero.tagline}
@@ -102,7 +104,7 @@ const Hero = () => {
           <p className="text-xs text-white/60 uppercase tracking-widest mb-2">Scroll Down</p>
           <div className="w-px h-8 bg-gradient-to-b from-white to-transparent mx-auto"></div>
         </motion.div>
-      </motion.div>
+      </MotionDiv>
     </section>
   );
 };
