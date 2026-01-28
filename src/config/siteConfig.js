@@ -2,7 +2,7 @@
 export const siteConfig = {
   // 基本信息
   meta: {
-    title: "Sarah & David's Wedding",
+    title: "wed",
     lang: "en",
     description: "Join us in celebrating our love."
   },
