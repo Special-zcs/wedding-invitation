@@ -2,11 +2,20 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
+import { Server } from 'socket.io';
+import { createServer } from 'http';
 import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || '*',
+    methods: ['GET', 'POST', 'PUT']
+  }
+});
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 const dataDir = path.join(process.cwd(), 'server', 'data');
 fs.mkdirSync(dataDir, { recursive: true });
@@ -103,6 +112,31 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+// Socket.io middleware and connection handling
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+  try {
+    const payload = jwt.verify(token, jwtSecret);
+    socket.user = payload;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
+io.on('connection', (socket) => {
+  const userId = socket.user.userId;
+  socket.join(`user:${userId}`);
+  console.log(`User ${userId} connected to socket`);
+
+  socket.on('disconnect', () => {
+    console.log(`User ${userId} disconnected from socket`);
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
@@ -163,10 +197,21 @@ app.put('/settings', authMiddleware, (req, res) => {
     const encrypted = encryptSettings(settings);
     db.prepare('INSERT INTO settings (user_id, version, updated_at, iv, tag, data) VALUES (?, ?, ?, ?, ?, ?)')
       .run(req.user.userId, 1, now, encrypted.iv, encrypted.tag, encrypted.data);
+    
+    io.to(`user:${req.user.userId}`).emit('settings_updated', {
+      version: 1,
+      updatedAt: now
+    });
+
     res.json({ version: 1, updatedAt: now });
     return;
   }
-  if (now < row.updated_at) {
+
+  // Check for version conflict or timestamp conflict
+  const isOutdatedVersion = typeof clientVersion === 'number' && clientVersion < row.version;
+  const isOutdatedTimestamp = now < row.updated_at;
+
+  if (isOutdatedVersion || isOutdatedTimestamp) {
     const serverSettings = decryptSettings(row);
     res.status(409).json({
       error: 'conflict',
@@ -174,13 +219,21 @@ app.put('/settings', authMiddleware, (req, res) => {
     });
     return;
   }
+
   const nextVersion = (row.version || 0) + 1;
   const encrypted = encryptSettings(settings);
   db.prepare('UPDATE settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE user_id = ?')
     .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data, req.user.userId);
+  
+  // Notify all other clients of this user about the update
+  io.to(`user:${req.user.userId}`).emit('settings_updated', {
+    version: nextVersion,
+    updatedAt: now
+  });
+
   res.json({ version: nextVersion, updatedAt: now });
 });
 
-app.listen(port, () => {
+httpServer.listen(port, () => {
   console.log(`settings server running on ${port}`);
 });

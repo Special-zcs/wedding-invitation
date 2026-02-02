@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import { siteConfig as initialConfig } from '../config/siteConfig';
 
 const ConfigContext = createContext();
@@ -10,7 +11,7 @@ export const ConfigProvider = ({ children }) => {
   const CONFLICT_KEY = 'wedding-site-config-conflict';
   const AUTH_TOKEN_KEY = 'wedding-auth-token';
   const AUTH_EMAIL_KEY = 'wedding-auth-email';
-  const API_BASE = import.meta.env.VITE_SETTINGS_API_BASE || 'http://localhost:4000';
+  const API_BASE = import.meta.env.VITE_SETTINGS_API_BASE || 'http://43.143.104.226:4000';
 
   const safeParse = useCallback((value, fallback) => {
     try {
@@ -29,13 +30,17 @@ export const ConfigProvider = ({ children }) => {
   const [syncStatus, setSyncStatus] = useState({ state: 'idle', message: '', lastSyncAt: 0 });
   const syncTimerRef = useRef(null);
   const latestConfigRef = useRef(config);
+  const socketRef = useRef(null);
+  const versionRef = useRef(0);
 
   useEffect(() => {
     latestConfigRef.current = config;
   }, [config]);
 
   const getMeta = useCallback(() => {
-    return safeParse(localStorage.getItem(META_KEY), { version: 0, updatedAt: 0 });
+    const meta = safeParse(localStorage.getItem(META_KEY), { version: 0, updatedAt: 0 });
+    versionRef.current = meta.version;
+    return meta;
   }, [META_KEY, safeParse]);
 
   const setMeta = useCallback((meta) => {
@@ -75,12 +80,18 @@ export const ConfigProvider = ({ children }) => {
     }
   }, [setLocalConfig, setMeta]);
 
-  const pullSettings = useCallback(async () => {
+  const pullSettings = useCallback(async (targetVersion) => {
     if (!authToken) return;
     if (!navigator.onLine) {
       setSyncStatus({ state: 'offline', message: '离线模式', lastSyncAt: syncStatus.lastSyncAt });
       return;
     }
+
+    // If targetVersion is provided, check if we already have it
+    if (targetVersion !== undefined && versionRef.current >= targetVersion) {
+      return;
+    }
+
     setSyncStatus({ state: 'syncing', message: '同步中', lastSyncAt: syncStatus.lastSyncAt });
     try {
       const res = await apiRequest('/settings', { method: 'GET' });
@@ -243,6 +254,42 @@ export const ConfigProvider = ({ children }) => {
     }
     await pushSettings(latestConfigRef.current);
   }, [PENDING_KEY, pushSettings, safeParse]);
+
+  useEffect(() => {
+    if (!authToken) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      return;
+    }
+
+    const socket = io(API_BASE, {
+      auth: { token: authToken },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    socket.on('connect', () => {
+      console.log('Socket connected');
+    });
+
+    socket.on('settings_updated', (data) => {
+      pullSettings(data.version);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+    });
+
+    socketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [authToken, API_BASE, pullSettings]);
 
   useEffect(() => {
     if (!authToken) return;
