@@ -220,6 +220,50 @@ export const ConfigProvider = ({ children }) => {
     }
   }, [AUTH_TOKEN_KEY, CONFLICT_KEY, apiRequest, applyRemoteSettings, authToken, clearPending, getMeta, setMeta, setPending, syncStatus.lastSyncAt]);
 
+  const pushPublicSettings = useCallback(async (settings, updatedAtOverride) => {
+    if (!navigator.onLine) {
+      setSyncStatus({ state: 'offline', message: '离线模式', lastSyncAt: syncStatus.lastSyncAt });
+      setPending(settings, updatedAtOverride || Date.now());
+      return;
+    }
+    const meta = getMeta();
+    const updatedAt = updatedAtOverride || meta.updatedAt || Date.now();
+    setSyncStatus({ state: 'syncing', message: '同步中', lastSyncAt: syncStatus.lastSyncAt });
+    try {
+      const res = await publicRequest('/public-settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          settings,
+          clientVersion: meta.version || 0,
+          updatedAt
+        })
+      });
+      if (res.status === 409) {
+        const data = await res.json();
+        if (data && data.server && data.server.settings) {
+          localStorage.setItem(CONFLICT_KEY, JSON.stringify({ local: settings, server: data.server }));
+          applyRemoteSettings(data.server.settings, { version: data.server.version, updatedAt: data.server.updatedAt });
+          setSyncStatus({ state: 'conflict', message: '存在冲突，已采用最新版本', lastSyncAt: data.server.updatedAt });
+          clearPending();
+          return;
+        }
+      }
+      if (!res.ok) {
+        setSyncStatus({ state: 'error', message: '同步失败', lastSyncAt: syncStatus.lastSyncAt });
+        setPending(settings, updatedAt);
+        return;
+      }
+      const data = await res.json();
+      const nextMeta = { version: data.version || meta.version || 0, updatedAt: data.updatedAt || Date.now() };
+      setMeta(nextMeta);
+      clearPending();
+      setSyncStatus({ state: 'idle', message: '已同步', lastSyncAt: nextMeta.updatedAt });
+    } catch {
+      setPending(settings, updatedAt);
+      setSyncStatus({ state: 'error', message: '网络异常', lastSyncAt: syncStatus.lastSyncAt });
+    }
+  }, [CONFLICT_KEY, applyRemoteSettings, clearPending, getMeta, publicRequest, setMeta, setPending, syncStatus.lastSyncAt]);
+
   const updateConfig = (newConfig) => {
     setLocalConfig(newConfig);
     const meta = getMeta();
@@ -228,7 +272,11 @@ export const ConfigProvider = ({ children }) => {
     setPending(newConfig, nextMeta.updatedAt);
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(() => {
-      pushSettings(latestConfigRef.current, nextMeta.updatedAt);
+      if (authToken) {
+        pushSettings(latestConfigRef.current, nextMeta.updatedAt);
+        return;
+      }
+      pushPublicSettings(latestConfigRef.current, nextMeta.updatedAt);
     }, 800);
   };
 

@@ -214,6 +214,53 @@ app.get('/public-settings', (req, res) => {
   res.json({ settings, version: row.version, updatedAt: row.updated_at });
 });
 
+app.put('/public-settings', (req, res) => {
+  const { settings, clientVersion, updatedAt } = req.body || {};
+  if (!settings || typeof settings !== 'object') {
+    res.status(400).json({ error: 'invalid_payload' });
+    return;
+  }
+  const now = typeof updatedAt === 'number' ? updatedAt : Date.now();
+  const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
+  if (!row) {
+    const encrypted = encryptSettings(settings);
+    db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
+      .run(1, now, encrypted.iv, encrypted.tag, encrypted.data);
+
+    io.to('global').emit('settings_updated', {
+      version: 1,
+      updatedAt: now
+    });
+
+    res.json({ version: 1, updatedAt: now });
+    return;
+  }
+
+  const isOutdatedVersion = typeof clientVersion === 'number' && clientVersion < row.version;
+  const isOutdatedTimestamp = now < row.updated_at;
+
+  if (isOutdatedVersion || isOutdatedTimestamp) {
+    const serverSettings = decryptSettings(row);
+    res.status(409).json({
+      error: 'conflict',
+      server: { settings: serverSettings, version: row.version, updatedAt: row.updated_at }
+    });
+    return;
+  }
+
+  const nextVersion = (row.version || 0) + 1;
+  const encrypted = encryptSettings(settings);
+  db.prepare('UPDATE public_settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE id = 1')
+    .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+
+  io.to('global').emit('settings_updated', {
+    version: nextVersion,
+    updatedAt: now
+  });
+
+  res.json({ version: nextVersion, updatedAt: now });
+});
+
 app.put('/settings', authMiddleware, (req, res) => {
   const { settings, clientVersion, updatedAt } = req.body || {};
   if (!settings || typeof settings !== 'object') {
