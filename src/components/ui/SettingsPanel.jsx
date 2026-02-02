@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Settings, X, Save, RotateCcw, Trash2, MessageSquare, Layout, Image as ImageIcon, Plus, BookHeart, Upload } from 'lucide-react';
 import { useConfig } from '../../context/ConfigContext';
 import { useDanmaku } from '../../context/DanmakuContext';
@@ -45,11 +45,21 @@ const ImageInput = ({ label, value, onChange, placeholder, className }) => {
 };
 
 const SettingsPanel = () => {
-  const { config, updateConfig, resetConfig } = useConfig();
+  const { config, updateConfig, resetConfig, login, register, logout, syncNow, authToken, authEmail, syncStatus } = useConfig();
   const { wishes, removeWish, clearWishes, isDanmakuEnabled, toggleDanmaku } = useDanmaku();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('general'); // 'general' | 'gallery' | 'story' | 'wishes'
   const [localConfig, setLocalConfig] = useState(config);
+  const [email, setEmail] = useState(authEmail || '');
+  const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    setLocalConfig(config);
+  }, [config]);
+
+  useEffect(() => {
+    setEmail(authEmail || '');
+  }, [authEmail]);
 
   const handleSave = () => {
     updateConfig(localConfig);
@@ -338,6 +348,68 @@ const SettingsPanel = () => {
                                   />
                                   <label className="text-sm text-gray-700">Click Explosion</label>
                               </div>
+                            </div>
+                          )}
+                        </div>
+                      </section>
+
+                      <section>
+                        <h3 className="font-bold text-gray-900 mb-3 pb-2 border-b">Cloud Sync</h3>
+                        <div className="space-y-3">
+                          {authToken ? (
+                            <div className="space-y-3">
+                              <div className="text-sm text-gray-600">已登录：{authEmail || '用户'}</div>
+                              <div className="text-xs text-gray-500">状态：{syncStatus.message || '就绪'}</div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={syncNow}
+                                  className="px-3 py-2 bg-primary text-white rounded hover:bg-pink-400 transition-colors text-sm"
+                                >
+                                  立即同步
+                                </button>
+                                <button
+                                  onClick={logout}
+                                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
+                                >
+                                  退出登录
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-sm text-gray-600 mb-1">邮箱</label>
+                                <input
+                                  type="email"
+                                  value={email}
+                                  onChange={(e) => setEmail(e.target.value)}
+                                  className="w-full p-2 border rounded focus:ring-primary focus:border-primary outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm text-gray-600 mb-1">密码</label>
+                                <input
+                                  type="password"
+                                  value={password}
+                                  onChange={(e) => setPassword(e.target.value)}
+                                  className="w-full p-2 border rounded focus:ring-primary focus:border-primary outline-none"
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => login(email, password)}
+                                  className="px-3 py-2 bg-primary text-white rounded hover:bg-pink-400 transition-colors text-sm"
+                                >
+                                  登录
+                                </button>
+                                <button
+                                  onClick={() => register(email, password)}
+                                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
+                                >
+                                  注册
+                                </button>
+                              </div>
+                              <div className="text-xs text-gray-500">状态：{syncStatus.message || '未登录'}</div>
                             </div>
                           )}
                         </div>
