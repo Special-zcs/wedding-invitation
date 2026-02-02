@@ -19,9 +19,8 @@ export const ConfigProvider = ({ children }) => {
       if (host === 'localhost' || host === '127.0.0.1') {
         return 'http://localhost:4000';
       }
-      return window.location.origin;
     }
-    return 'http://43.143.104.226:4000';
+    return 'https://specialzcs.duckdns.org';
   };
 
   const API_BASE = resolveApiBase();
