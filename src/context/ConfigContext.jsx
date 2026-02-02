@@ -264,6 +264,7 @@ export const ConfigProvider = ({ children }) => {
   }, [CONFLICT_KEY, applyRemoteSettings, clearPending, getMeta, publicRequest, setMeta, setPending, syncStatus.lastSyncAt]);
 
   const updateConfig = (newConfig) => {
+    latestConfigRef.current = newConfig;
     setLocalConfig(newConfig);
     const meta = getMeta();
     const nextMeta = { version: meta.version || 0, updatedAt: Date.now() };
