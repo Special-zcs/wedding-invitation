@@ -61,6 +61,14 @@ const SettingsPanel = () => {
     setEmail(authEmail || '');
   }, [authEmail]);
 
+  const applyConfigUpdate = (updater) => {
+    setLocalConfig((prev) => {
+      const next = updater(prev);
+      updateConfig(next);
+      return next;
+    });
+  };
+
   const handleSave = () => {
     updateConfig(localConfig);
     setIsOpen(false);
@@ -77,7 +85,7 @@ const SettingsPanel = () => {
   // Helper to update deep state
   const updateField = (path, value) => {
     const keys = path.split('.');
-    setLocalConfig(prev => {
+    applyConfigUpdate((prev) => {
       const newState = { ...prev };
       let current = newState;
       for (let i = 0; i < keys.length - 1; i++) {
@@ -90,7 +98,7 @@ const SettingsPanel = () => {
 
   // Gallery Helpers
   const updateGalleryImage = (index, field, value) => {
-    setLocalConfig(prev => {
+    applyConfigUpdate((prev) => {
         const newImages = [...prev.gallery.images];
         newImages[index] = { ...newImages[index], [field]: value };
         return {
@@ -104,35 +112,35 @@ const SettingsPanel = () => {
   };
 
   const removeGalleryImage = (index) => {
-      setLocalConfig(prev => ({
-          ...prev,
-          gallery: {
-              ...prev.gallery,
-              images: prev.gallery.images.filter((_, i) => i !== index)
-          }
-      }));
+    applyConfigUpdate((prev) => ({
+      ...prev,
+      gallery: {
+        ...prev.gallery,
+        images: prev.gallery.images.filter((_, i) => i !== index)
+      }
+    }));
   };
 
   const addGalleryImage = () => {
-      setLocalConfig(prev => ({
-          ...prev,
-          gallery: {
-              ...prev.gallery,
-              images: [
-                  ...prev.gallery.images,
-                  {
-                      src: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800",
-                      caption: "New Photo",
-                      date: "2026-01"
-                  }
-              ]
+    applyConfigUpdate((prev) => ({
+      ...prev,
+      gallery: {
+        ...prev.gallery,
+        images: [
+          ...prev.gallery.images,
+          {
+            src: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800",
+            caption: "New Photo",
+            date: "2026-01"
           }
-      }));
+        ]
+      }
+    }));
   };
 
   // Story Helpers
   const updateStoryEvent = (index, field, value) => {
-    setLocalConfig(prev => {
+    applyConfigUpdate((prev) => {
         const newEvents = [...prev.story.events];
         newEvents[index] = { ...newEvents[index], [field]: value };
         return {
@@ -146,31 +154,31 @@ const SettingsPanel = () => {
   };
 
   const removeStoryEvent = (index) => {
-      setLocalConfig(prev => ({
-          ...prev,
-          story: {
-              ...prev.story,
-              events: prev.story.events.filter((_, i) => i !== index)
-          }
-      }));
+    applyConfigUpdate((prev) => ({
+      ...prev,
+      story: {
+        ...prev.story,
+        events: prev.story.events.filter((_, i) => i !== index)
+      }
+    }));
   };
 
   const addStoryEvent = () => {
-      setLocalConfig(prev => ({
-          ...prev,
-          story: {
-              ...prev.story,
-              events: [
-                  ...prev.story.events,
-                  {
-                      year: new Date().getFullYear().toString(),
-                      title: "New Chapter",
-                      desc: "Description of this memorable event...",
-                      image: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800"
-                  }
-              ]
+    applyConfigUpdate((prev) => ({
+      ...prev,
+      story: {
+        ...prev.story,
+        events: [
+          ...prev.story.events,
+          {
+            year: new Date().getFullYear().toString(),
+            title: "New Chapter",
+            desc: "Description of this memorable event...",
+            image: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800"
           }
-      }));
+        ]
+      }
+    }));
   };
 
 

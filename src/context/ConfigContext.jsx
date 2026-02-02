@@ -276,7 +276,7 @@ export const ConfigProvider = ({ children }) => {
         return;
       }
       pushPublicSettings(latestConfigRef.current, nextMeta.updatedAt);
-    }, 800);
+    }, 300);
   };
 
   const resetConfig = () => {
@@ -368,6 +368,11 @@ export const ConfigProvider = ({ children }) => {
 
     socket.on('connect', () => {
       console.log('Socket connected');
+      if (authToken) {
+        pullSettings();
+        return;
+      }
+      pullPublicSettings();
     });
 
     socket.on('settings_updated', (data) => {

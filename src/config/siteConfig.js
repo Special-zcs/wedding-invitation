@@ -101,6 +101,12 @@ export const siteConfig = {
     title: "Best Wishes",
     subtitle: "Leave your blessings for the happy couple.",
     defaultMessage: "May your love be modern enough to survive the times, but old-fashioned enough to last forever.",
+    messages: [
+      "Alice : Wishing you a lifetime of love and happiness!",
+      "Bob : Congratulations on your wedding day!",
+      "Charlie : May your love grow stronger each and every day.",
+      "Diana : Best wishes on this wonderful journey, as you build your new lives together."
+    ],
     contact: {
         email: "wedding@example.com",
         phone: "+1 234 567 890"
