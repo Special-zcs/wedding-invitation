@@ -11,7 +11,21 @@ export const ConfigProvider = ({ children }) => {
   const CONFLICT_KEY = 'wedding-site-config-conflict';
   const AUTH_TOKEN_KEY = 'wedding-auth-token';
   const AUTH_EMAIL_KEY = 'wedding-auth-email';
-  const API_BASE = import.meta.env.VITE_SETTINGS_API_BASE || 'http://43.143.104.226:4000';
+  const resolveApiBase = () => {
+    const envBase = import.meta.env.VITE_SETTINGS_API_BASE;
+    if (envBase) return envBase;
+    if (typeof window !== 'undefined' && window.location) {
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'http://localhost:4000';
+      }
+      return window.location.origin;
+    }
+    return 'http://43.143.104.226:4000';
+  };
+
+  const API_BASE = resolveApiBase();
+  const SOCKET_BASE = import.meta.env.VITE_SETTINGS_WS_BASE || API_BASE;
 
   const safeParse = useCallback((value, fallback) => {
     try {
@@ -72,6 +86,17 @@ export const ConfigProvider = ({ children }) => {
     return response;
   }, [API_BASE, authToken]);
 
+  const publicRequest = useCallback(async (path, options = {}) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      }
+    });
+    return response;
+  }, [API_BASE]);
+
   const applyRemoteSettings = useCallback((settings, meta) => {
     if (settings) {
       setLocalConfig(settings);
@@ -116,6 +141,33 @@ export const ConfigProvider = ({ children }) => {
       setSyncStatus({ state: 'error', message: '网络异常', lastSyncAt: syncStatus.lastSyncAt });
     }
   }, [AUTH_TOKEN_KEY, apiRequest, applyRemoteSettings, authToken, clearPending, syncStatus.lastSyncAt]);
+
+  const pullPublicSettings = useCallback(async (targetVersion) => {
+    if (!navigator.onLine) {
+      setSyncStatus({ state: 'offline', message: '离线模式', lastSyncAt: syncStatus.lastSyncAt });
+      return;
+    }
+    if (targetVersion !== undefined && versionRef.current >= targetVersion) {
+      return;
+    }
+    setSyncStatus({ state: 'syncing', message: '同步中', lastSyncAt: syncStatus.lastSyncAt });
+    try {
+      const res = await publicRequest('/public-settings', { method: 'GET' });
+      if (!res.ok) {
+        setSyncStatus({ state: 'error', message: '同步失败', lastSyncAt: syncStatus.lastSyncAt });
+        return;
+      }
+      const data = await res.json();
+      if (data && data.settings) {
+        applyRemoteSettings(data.settings, { version: data.version || 0, updatedAt: data.updatedAt || Date.now() });
+        clearPending();
+      } else {
+        setSyncStatus({ state: 'idle', message: '无远端数据', lastSyncAt: syncStatus.lastSyncAt });
+      }
+    } catch {
+      setSyncStatus({ state: 'error', message: '网络异常', lastSyncAt: syncStatus.lastSyncAt });
+    }
+  }, [applyRemoteSettings, clearPending, publicRequest, syncStatus.lastSyncAt]);
 
   const pushSettings = useCallback(async (settings, updatedAtOverride) => {
     if (!authToken) return;
@@ -247,25 +299,21 @@ export const ConfigProvider = ({ children }) => {
   };
 
   const syncNow = useCallback(async () => {
+    if (!authToken) {
+      await pullPublicSettings();
+      return;
+    }
     const pending = safeParse(localStorage.getItem(PENDING_KEY), null);
     if (pending && pending.settings) {
       await pushSettings(pending.settings, pending.updatedAt);
       return;
     }
     await pushSettings(latestConfigRef.current);
-  }, [PENDING_KEY, pushSettings, safeParse]);
+  }, [PENDING_KEY, authToken, pullPublicSettings, pushSettings, safeParse]);
 
   useEffect(() => {
-    if (!authToken) {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-      return;
-    }
-
-    const socket = io(API_BASE, {
-      auth: { token: authToken },
+    const socket = io(SOCKET_BASE, {
+      auth: authToken ? { token: authToken } : {},
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -276,7 +324,11 @@ export const ConfigProvider = ({ children }) => {
     });
 
     socket.on('settings_updated', (data) => {
-      pullSettings(data.version);
+      if (authToken) {
+        pullSettings(data.version);
+        return;
+      }
+      pullPublicSettings(data.version);
     });
 
     socket.on('connect_error', (err) => {
@@ -289,15 +341,18 @@ export const ConfigProvider = ({ children }) => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [authToken, API_BASE, pullSettings]);
+  }, [authToken, pullPublicSettings, pullSettings, SOCKET_BASE]);
 
   useEffect(() => {
-    if (!authToken) return;
     const timer = setTimeout(() => {
-      pullSettings();
+      if (authToken) {
+        pullSettings();
+        return;
+      }
+      pullPublicSettings();
     }, 0);
     return () => clearTimeout(timer);
-  }, [authToken, pullSettings]);
+  }, [authToken, pullPublicSettings, pullSettings]);
 
   useEffect(() => {
     const handleOnline = () => {

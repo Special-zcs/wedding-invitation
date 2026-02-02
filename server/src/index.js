@@ -54,6 +54,14 @@ db.exec(`
     data TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
+  CREATE TABLE IF NOT EXISTS public_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    iv TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    data TEXT NOT NULL
+  );
 `);
 
 app.use(express.json({ limit: '2mb' }));
@@ -114,9 +122,11 @@ const authMiddleware = (req, res, next) => {
 
 // Socket.io middleware and connection handling
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
+  const token = socket.handshake.auth?.token;
   if (!token) {
-    return next(new Error('Authentication error'));
+    socket.user = null;
+    next();
+    return;
   }
   try {
     const payload = jwt.verify(token, jwtSecret);
@@ -128,12 +138,21 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  const userId = socket.user.userId;
-  socket.join(`user:${userId}`);
-  console.log(`User ${userId} connected to socket`);
+  socket.join('global');
+  if (socket.user?.userId) {
+    const userId = socket.user.userId;
+    socket.join(`user:${userId}`);
+    console.log(`User ${userId} connected to socket`);
+  } else {
+    console.log('Public client connected to socket');
+  }
 
   socket.on('disconnect', () => {
-    console.log(`User ${userId} disconnected from socket`);
+    if (socket.user?.userId) {
+      console.log(`User ${socket.user.userId} disconnected from socket`);
+      return;
+    }
+    console.log('Public client disconnected from socket');
   });
 });
 
@@ -176,7 +195,17 @@ app.post('/auth/login', (req, res) => {
 });
 
 app.get('/settings', authMiddleware, (req, res) => {
-  const row = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(req.user.userId);
+  const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
+  if (!row) {
+    res.json({ settings: null, version: 0, updatedAt: 0 });
+    return;
+  }
+  const settings = decryptSettings(row);
+  res.json({ settings, version: row.version, updatedAt: row.updated_at });
+});
+
+app.get('/public-settings', (req, res) => {
+  const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
   if (!row) {
     res.json({ settings: null, version: 0, updatedAt: 0 });
     return;
@@ -192,13 +221,13 @@ app.put('/settings', authMiddleware, (req, res) => {
     return;
   }
   const now = typeof updatedAt === 'number' ? updatedAt : Date.now();
-  const row = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(req.user.userId);
+  const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
   if (!row) {
     const encrypted = encryptSettings(settings);
-    db.prepare('INSERT INTO settings (user_id, version, updated_at, iv, tag, data) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(req.user.userId, 1, now, encrypted.iv, encrypted.tag, encrypted.data);
-    
-    io.to(`user:${req.user.userId}`).emit('settings_updated', {
+    db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
+      .run(1, now, encrypted.iv, encrypted.tag, encrypted.data);
+
+    io.to('global').emit('settings_updated', {
       version: 1,
       updatedAt: now
     });
@@ -222,11 +251,10 @@ app.put('/settings', authMiddleware, (req, res) => {
 
   const nextVersion = (row.version || 0) + 1;
   const encrypted = encryptSettings(settings);
-  db.prepare('UPDATE settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE user_id = ?')
-    .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data, req.user.userId);
-  
-  // Notify all other clients of this user about the update
-  io.to(`user:${req.user.userId}`).emit('settings_updated', {
+  db.prepare('UPDATE public_settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE id = 1')
+    .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+
+  io.to('global').emit('settings_updated', {
     version: nextVersion,
     updatedAt: now
   });
