@@ -100,6 +100,69 @@ const decryptSettings = (row) => {
   return JSON.parse(decrypted.toString('utf8'));
 };
 
+const createClientId = () => {
+  return `server-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const compareClock = (a, b) => {
+  if (!a && !b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  if (a.ts !== b.ts) return a.ts > b.ts ? 1 : -1;
+  if (a.clientId === b.clientId) return 0;
+  return a.clientId > b.clientId ? 1 : -1;
+};
+
+const applyImagePatch = (settings, patch) => {
+  const gallery = settings.gallery || {};
+  const images = Array.isArray(gallery.images) ? [...gallery.images] : [];
+  const imageClocks = { ...(gallery.imageClocks || {}) };
+  const imageTombstones = { ...(gallery.imageTombstones || {}) };
+  const tombstone = patch.imageId ? imageTombstones[patch.imageId] : null;
+  if (tombstone && compareClock(tombstone, patch.clock) >= 0) {
+    return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+  }
+  if (patch.action === 'remove') {
+    imageTombstones[patch.imageId] = patch.clock;
+    const filtered = images.filter((img) => img.id !== patch.imageId);
+    return { ...settings, gallery: { ...gallery, images: filtered, imageClocks, imageTombstones } };
+  }
+  if (patch.action === 'add') {
+    const incoming = patch.image || {};
+    const id = patch.imageId || incoming.id || createClientId();
+    const existingIndex = images.findIndex((img) => img.id === id);
+    const nextImage = { ...incoming, id };
+    const nextClocks = {
+      src: patch.clock,
+      caption: patch.clock,
+      date: patch.clock
+    };
+    imageClocks[id] = { ...(imageClocks[id] || {}), ...nextClocks };
+    if (existingIndex >= 0) {
+      images[existingIndex] = { ...images[existingIndex], ...nextImage };
+    } else {
+      images.push(nextImage);
+    }
+    return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+  }
+  if (patch.action === 'update') {
+    const index = images.findIndex((img) => img.id === patch.imageId);
+    if (index === -1) {
+      return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+    }
+    const fieldClocks = imageClocks[patch.imageId] || {};
+    const existingClock = fieldClocks[patch.field];
+    if (compareClock(patch.clock, existingClock) <= 0) {
+      return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+    }
+    const nextImage = { ...images[index], [patch.field]: patch.value };
+    images[index] = nextImage;
+    imageClocks[patch.imageId] = { ...fieldClocks, [patch.field]: patch.clock };
+    return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+  }
+  return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+};
+
 const signToken = (user) => {
   return jwt.sign({ userId: user.id, email: user.email }, jwtSecret, { expiresIn: '30d' });
 };
@@ -146,6 +209,33 @@ io.on('connection', (socket) => {
   } else {
     console.log('Public client connected to socket');
   }
+
+  socket.on('image_patch', (payload) => {
+    const patch = payload?.patch;
+    if (!patch || !patch.action || !patch.clock || typeof patch.clock.ts !== 'number' || !patch.clock.clientId) {
+      return;
+    }
+    if (payload?.scope === 'private' && !socket.user?.userId) {
+      return;
+    }
+    const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
+    const baseSettings = row
+      ? decryptSettings(row)
+      : { gallery: { images: [], imageClocks: {}, imageTombstones: {} } };
+    const nextSettings = applyImagePatch(baseSettings, patch);
+    const now = Date.now();
+    const nextVersion = row ? (row.version || 0) + 1 : 1;
+    const encrypted = encryptSettings(nextSettings);
+    if (!row) {
+      db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
+        .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+    } else {
+      db.prepare('UPDATE public_settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE id = 1')
+        .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+    }
+    io.to('global').emit('image_patch', { patch, version: nextVersion, updatedAt: now });
+    io.to('global').emit('settings_updated', { version: nextVersion, updatedAt: now });
+  });
 
   socket.on('disconnect', () => {
     if (socket.user?.userId) {

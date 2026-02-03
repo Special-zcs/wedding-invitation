@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { siteConfig as initialConfig } from '../config/siteConfig';
+import { applyImagePatch, buildImagePatch, createClientId, ensureGalleryCrdt } from '../utils/imageCrdt';
 
 const ConfigContext = createContext();
 
@@ -11,6 +12,7 @@ export const ConfigProvider = ({ children }) => {
   const CONFLICT_KEY = 'wedding-site-config-conflict';
   const AUTH_TOKEN_KEY = 'wedding-auth-token';
   const AUTH_EMAIL_KEY = 'wedding-auth-email';
+  const CLIENT_ID_KEY = 'wedding-client-id';
   const resolveApiBase = () => {
     const envBase = import.meta.env.VITE_SETTINGS_API_BASE;
     if (envBase) return envBase;
@@ -34,9 +36,19 @@ export const ConfigProvider = ({ children }) => {
     }
   }, []);
 
+  const resolveClientId = () => {
+    const existing = localStorage.getItem(CLIENT_ID_KEY);
+    if (existing) return existing;
+    const next = createClientId();
+    localStorage.setItem(CLIENT_ID_KEY, next);
+    return next;
+  };
+  const [clientId] = useState(() => resolveClientId());
+
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem(CONFIG_KEY);
-    return saved ? JSON.parse(saved) : initialConfig;
+    const baseConfig = saved ? JSON.parse(saved) : initialConfig;
+    return ensureGalleryCrdt(baseConfig, clientId);
   });
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
   const [authEmail, setAuthEmail] = useState(() => localStorage.getItem(AUTH_EMAIL_KEY) || '');
@@ -98,11 +110,12 @@ export const ConfigProvider = ({ children }) => {
 
   const applyRemoteSettings = useCallback((settings, meta) => {
     if (settings) {
-      setLocalConfig(settings);
+      const normalized = ensureGalleryCrdt(settings, clientId);
+      setLocalConfig(normalized);
       setMeta(meta);
       setSyncStatus({ state: 'idle', message: '已同步', lastSyncAt: meta.updatedAt || Date.now() });
     }
-  }, [setLocalConfig, setMeta]);
+  }, [clientId, setLocalConfig, setMeta]);
 
   const pullSettings = useCallback(async (targetVersion) => {
     if (!authToken) return;
@@ -263,13 +276,14 @@ export const ConfigProvider = ({ children }) => {
     }
   }, [CONFLICT_KEY, applyRemoteSettings, clearPending, getMeta, publicRequest, setMeta, setPending, syncStatus.lastSyncAt]);
 
-  const updateConfig = (newConfig) => {
-    latestConfigRef.current = newConfig;
-    setLocalConfig(newConfig);
+  const updateConfig = useCallback((newConfig) => {
+    const normalized = ensureGalleryCrdt(newConfig, clientId);
+    latestConfigRef.current = normalized;
+    setLocalConfig(normalized);
     const meta = getMeta();
     const nextMeta = { version: meta.version || 0, updatedAt: Date.now() };
     setMeta(nextMeta);
-    setPending(newConfig, nextMeta.updatedAt);
+    setPending(normalized, nextMeta.updatedAt);
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(() => {
       if (authToken) {
@@ -278,13 +292,57 @@ export const ConfigProvider = ({ children }) => {
       }
       pushPublicSettings(latestConfigRef.current, nextMeta.updatedAt);
     }, 300);
-  };
+  }, [authToken, clientId, getMeta, pushPublicSettings, pushSettings, setLocalConfig, setMeta, setPending]);
 
-  const resetConfig = () => {
-    setConfig(initialConfig);
+  const applyImagePatchLocal = useCallback((patch, options = {}) => {
+    const baseConfig = ensureGalleryCrdt(latestConfigRef.current, clientId);
+    const nextConfig = applyImagePatch(baseConfig, patch);
+    latestConfigRef.current = nextConfig;
+    if (options.skipPush) {
+      setLocalConfig(nextConfig);
+      if (options.meta) {
+        setMeta(options.meta);
+      } else {
+        const meta = getMeta();
+        setMeta({ version: meta.version || 0, updatedAt: options.updatedAt || meta.updatedAt || Date.now() });
+      }
+      setSyncStatus({ state: 'idle', message: '已同步', lastSyncAt: options.updatedAt || Date.now() });
+      return;
+    }
+    updateConfig(nextConfig);
+  }, [clientId, getMeta, setLocalConfig, setMeta, updateConfig]);
+
+  const emitImagePatch = useCallback((patch) => {
+    if (!socketRef.current) return;
+    const scope = authToken ? 'private' : 'public';
+    socketRef.current.emit('image_patch', { patch, scope });
+  }, [authToken]);
+
+  const updateGalleryImageField = useCallback((imageId, field, value) => {
+    const patch = buildImagePatch({ action: 'update', imageId, field, value, clientId });
+    applyImagePatchLocal(patch);
+    emitImagePatch(patch);
+  }, [applyImagePatchLocal, clientId, emitImagePatch]);
+
+  const removeGalleryImage = useCallback((imageId) => {
+    const patch = buildImagePatch({ action: 'remove', imageId, clientId });
+    applyImagePatchLocal(patch);
+    emitImagePatch(patch);
+  }, [applyImagePatchLocal, clientId, emitImagePatch]);
+
+  const addGalleryImage = useCallback((image) => {
+    const id = image?.id || createClientId();
+    const nextImage = { ...image, id };
+    const patch = buildImagePatch({ action: 'add', imageId: id, image: nextImage, clientId });
+    applyImagePatchLocal(patch);
+    emitImagePatch(patch);
+  }, [applyImagePatchLocal, clientId, emitImagePatch]);
+
+  const resetConfig = useCallback(() => {
+    setConfig(ensureGalleryCrdt(initialConfig, clientId));
     localStorage.removeItem(CONFIG_KEY);
     setMeta({ version: 0, updatedAt: 0 });
-  };
+  }, [CONFIG_KEY, clientId, setMeta]);
 
   const register = async (email, password) => {
     setSyncStatus({ state: 'syncing', message: '注册中', lastSyncAt: syncStatus.lastSyncAt });
@@ -384,6 +442,12 @@ export const ConfigProvider = ({ children }) => {
       pullPublicSettings(data.version);
     });
 
+    socket.on('image_patch', (data) => {
+      if (!data || !data.patch) return;
+      const meta = data.version ? { version: data.version, updatedAt: data.updatedAt || Date.now() } : null;
+      applyImagePatchLocal(data.patch, { skipPush: true, meta });
+    });
+
     socket.on('connect_error', (err) => {
       console.error('Socket connection error:', err.message);
     });
@@ -394,7 +458,7 @@ export const ConfigProvider = ({ children }) => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [authToken, pullPublicSettings, pullSettings, SOCKET_BASE]);
+  }, [authToken, pullPublicSettings, pullSettings, SOCKET_BASE, applyImagePatchLocal]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -420,6 +484,9 @@ export const ConfigProvider = ({ children }) => {
       value={{
         config,
         updateConfig,
+        updateGalleryImageField,
+        addGalleryImage,
+        removeGalleryImage,
         resetConfig,
         login,
         register,

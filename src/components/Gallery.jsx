@@ -9,6 +9,8 @@ const Gallery = () => {
   const { config } = useConfig();
   const { gallery } = config;
   const [selectedId, setSelectedId] = useState(null);
+  const selectedIndex = selectedId ? gallery.images.findIndex((img) => img.id === selectedId) : -1;
+  const selectedImage = selectedIndex >= 0 ? gallery.images[selectedIndex] : null;
 
   // Simple view mode internal state if we want to allow user toggling, 
   // otherwise use config.gallery.viewMode
@@ -32,9 +34,9 @@ const Gallery = () => {
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
              {gallery.images.map((img, index) => (
                <MotionDiv
-                 key={index}
-                 layoutId={`image-${index}`}
-                 onClick={() => setSelectedId(index)}
+                 key={img.id || index}
+                 layoutId={`image-${img.id || index}`}
+                 onClick={() => setSelectedId(img.id)}
                  className="cursor-pointer overflow-hidden rounded-xl shadow-lg aspect-[3/4] group relative bg-gray-100"
                  whileHover={{ y: -5 }}
                  initial={{ opacity: 0, scale: 0.9 }}
@@ -59,8 +61,8 @@ const Gallery = () => {
         ) : (
            // Simple Carousel View Placeholder if 'carousel' is selected in config
            <div className="flex overflow-x-auto gap-4 pb-8 snap-x">
-              {gallery.images.map((img, index) => (
-                  <div key={index} className="snap-center shrink-0 w-[80vw] md:w-[400px] aspect-[3/4] rounded-xl overflow-hidden shadow-lg relative">
+             {gallery.images.map((img, index) => (
+                  <div key={img.id || index} className="snap-center shrink-0 w-[80vw] md:w-[400px] aspect-[3/4] rounded-xl overflow-hidden shadow-lg relative">
                       <img src={img.src} className="w-full h-full object-cover" referrerPolicy="no-referrer" crossOrigin="anonymous" />
                       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent">
                           <p className="text-white font-serif">{img.caption}</p>
@@ -71,7 +73,7 @@ const Gallery = () => {
         )}
 
         <AnimatePresence>
-          {selectedId !== null && (
+          {selectedId !== null && selectedImage && (
             <div 
               className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
               onClick={() => setSelectedId(null)}
@@ -88,12 +90,12 @@ const Gallery = () => {
               </MotionDiv>
               
               <MotionDiv
-                layoutId={`image-${selectedId}`}
+                layoutId={`image-${selectedImage.id}`}
                 className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center rounded-lg"
                 onClick={(e) => e.stopPropagation()}
               >
                 <img 
-                  src={gallery.images[selectedId].src} 
+                  src={selectedImage.src} 
                   alt="Selected" 
                   className="max-w-full max-h-[80vh] object-contain shadow-2xl rounded-sm" 
                   referrerPolicy="no-referrer"
@@ -104,8 +106,8 @@ const Gallery = () => {
                     transition={{ delay: 0.2 }}
                     className="mt-4 text-center"
                 >
-                    <h3 className="text-white text-2xl font-serif">{gallery.images[selectedId].caption}</h3>
-                    <p className="text-white/60">{gallery.images[selectedId].date}</p>
+                    <h3 className="text-white text-2xl font-serif">{selectedImage.caption}</h3>
+                    <p className="text-white/60">{selectedImage.date}</p>
                 </MotionDiv>
               </MotionDiv>
 
@@ -114,7 +116,9 @@ const Gallery = () => {
                 className="absolute left-4 p-2 text-white/50 hover:text-white transition-colors"
                 onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedId(prev => (prev === 0 ? gallery.images.length - 1 : prev - 1));
+                    if (selectedIndex < 0) return;
+                    const nextIndex = selectedIndex === 0 ? gallery.images.length - 1 : selectedIndex - 1;
+                    setSelectedId(gallery.images[nextIndex].id);
                 }}
               >
                 <ChevronLeft size={40} />
@@ -124,7 +128,9 @@ const Gallery = () => {
                 className="absolute right-4 p-2 text-white/50 hover:text-white transition-colors"
                 onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedId(prev => (prev === gallery.images.length - 1 ? 0 : prev + 1));
+                    if (selectedIndex < 0) return;
+                    const nextIndex = selectedIndex === gallery.images.length - 1 ? 0 : selectedIndex + 1;
+                    setSelectedId(gallery.images[nextIndex].id);
                 }}
               >
                 <ChevronRight size={40} />

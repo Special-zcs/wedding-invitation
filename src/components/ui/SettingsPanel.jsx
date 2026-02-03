@@ -45,7 +45,7 @@ const ImageInput = ({ label, value, onChange, placeholder, className }) => {
 };
 
 const SettingsPanel = () => {
-  const { config, updateConfig, resetConfig, login, register, logout, syncNow, authToken, authEmail, syncStatus } = useConfig();
+  const { config, updateConfig, updateGalleryImageField, addGalleryImage, removeGalleryImage, resetConfig, login, register, logout, syncNow, authToken, authEmail, syncStatus } = useConfig();
   const { wishes, removeWish, clearWishes, isDanmakuEnabled, toggleDanmaku } = useDanmaku();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('general'); // 'general' | 'gallery' | 'story' | 'wishes'
@@ -96,46 +96,12 @@ const SettingsPanel = () => {
     });
   };
 
-  // Gallery Helpers
-  const updateGalleryImage = (index, field, value) => {
-    applyConfigUpdate((prev) => {
-        const newImages = [...prev.gallery.images];
-        newImages[index] = { ...newImages[index], [field]: value };
-        return {
-            ...prev,
-            gallery: {
-                ...prev.gallery,
-                images: newImages
-            }
-        };
+  const handleAddGalleryImage = () => {
+    addGalleryImage({
+      src: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800",
+      caption: "New Photo",
+      date: "2026-01"
     });
-  };
-
-  const removeGalleryImage = (index) => {
-    applyConfigUpdate((prev) => ({
-      ...prev,
-      gallery: {
-        ...prev.gallery,
-        images: prev.gallery.images.filter((_, i) => i !== index)
-      }
-    }));
-  };
-
-  const addGalleryImage = () => {
-    applyConfigUpdate((prev) => ({
-      ...prev,
-      gallery: {
-        ...prev.gallery,
-        images: [
-          ...prev.gallery.images,
-          {
-            src: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800",
-            caption: "New Photo",
-            date: "2026-01"
-          }
-        ]
-      }
-    }));
   };
 
   // Story Helpers
@@ -520,7 +486,7 @@ const SettingsPanel = () => {
                              <div className="flex justify-between items-center mb-4 pb-2 border-b">
                                 <h3 className="font-bold text-gray-900">Manage Photos</h3>
                                 <button 
-                                    onClick={addGalleryImage}
+                                    onClick={handleAddGalleryImage}
                                     className="text-sm text-primary flex items-center gap-1 hover:text-pink-600"
                                 >
                                     <Plus size={16} /> Add Photo
@@ -528,10 +494,10 @@ const SettingsPanel = () => {
                              </div>
                              
                              <div className="space-y-6">
-                                 {localConfig.gallery.images.map((img, index) => (
-                                     <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
+                                {config.gallery.images.map((img, index) => (
+                                    <div key={img.id || index} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
                                          <button 
-                                            onClick={() => removeGalleryImage(index)}
+                                           onClick={() => removeGalleryImage(img.id)}
                                             className="absolute top-2 right-2 p-1.5 bg-white text-gray-400 hover:text-red-500 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
                                             title="Remove Photo"
                                          >
@@ -546,7 +512,7 @@ const SettingsPanel = () => {
                                                  <ImageInput
                                                      label="Image URL"
                                                      value={img.src}
-                                                     onChange={(val) => updateGalleryImage(index, 'src', val)}
+                                                    onChange={(val) => updateGalleryImageField(img.id, 'src', val)}
                                                  />
                                              </div>
                                          </div>
@@ -557,7 +523,7 @@ const SettingsPanel = () => {
                                                  <input 
                                                      type="text" 
                                                      value={img.caption}
-                                                     onChange={(e) => updateGalleryImage(index, 'caption', e.target.value)}
+                                                    onChange={(e) => updateGalleryImageField(img.id, 'caption', e.target.value)}
                                                      className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none"
                                                  />
                                              </div>
@@ -566,7 +532,7 @@ const SettingsPanel = () => {
                                                  <input 
                                                      type="text" 
                                                      value={img.date}
-                                                     onChange={(e) => updateGalleryImage(index, 'date', e.target.value)}
+                                                    onChange={(e) => updateGalleryImageField(img.id, 'date', e.target.value)}
                                                      className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none"
                                                  />
                                              </div>
