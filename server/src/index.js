@@ -63,6 +63,32 @@ db.exec(`
   );
 `);
 
+// Initialize default settings if not exists
+const initDefaultSettings = () => {
+  const row = db.prepare('SELECT id FROM public_settings WHERE id = 1').get();
+  if (!row) {
+    console.log('Initializing default settings...');
+    const defaultSettings = {
+      names: { groom: "Groom", bride: "Bride" },
+      date: "2025-01-01",
+      location: "Wedding Venue",
+      gallery: { images: [], imageClocks: {}, imageTombstones: {} },
+      story: { events: [] },
+      wishes: { messages: [] },
+      theme: {
+        colors: { primary: "#e8a8bf", secondary: "#fdf2f8", accent: "#d4af37", text: "#4a4a4a" },
+        animation: { enableParticles: true, particleCount: 40 }
+      }
+    };
+    const encrypted = encryptSettings(defaultSettings);
+    const now = Date.now();
+    db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
+      .run(1, now, encrypted.iv, encrypted.tag, encrypted.data);
+    console.log('Default settings initialized.');
+  }
+};
+
+
 app.use(express.json({ limit: '20mb' }));
 app.use((req, res, next) => {
   const origin = process.env.CORS_ORIGIN || '*';
@@ -435,5 +461,6 @@ app.put('/settings', authMiddleware, (req, res) => {
 });
 
 httpServer.listen(port, () => {
+  initDefaultSettings();
   console.log(`settings server running on ${port}`);
 });
