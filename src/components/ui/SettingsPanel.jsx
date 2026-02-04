@@ -3,17 +3,24 @@ import { Settings, X, Save, RotateCcw, Trash2, MessageSquare, Layout, Image as I
 import { useConfig } from '../../context/ConfigContext';
 import { useDanmaku } from '../../context/DanmakuContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { compressImage } from '../../utils/imageCompression';
 
 const MotionDiv = motion.div;
 
 // Helper component for image input with file upload support
 const ImageInput = ({ label, value, onChange, placeholder, className }) => {
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        onChange(reader.result);
+      reader.onloadend = async () => {
+        try {
+          const compressed = await compressImage(reader.result);
+          onChange(compressed);
+        } catch (err) {
+          console.error('Image compression failed:', err);
+          onChange(reader.result); // Fallback to original
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -45,7 +52,24 @@ const ImageInput = ({ label, value, onChange, placeholder, className }) => {
 };
 
 const SettingsPanel = () => {
-  const { config, updateConfig, updateGalleryImageField, addGalleryImage, removeGalleryImage, resetConfig, login, register, logout, syncNow, authToken, authEmail, syncStatus } = useConfig();
+  const { 
+    config, 
+    updateConfig, 
+    updateGalleryImageField, 
+    addGalleryImage, 
+    removeGalleryImage, 
+    updateStoryEventField,
+    addStoryEvent,
+    removeStoryEvent,
+    resetConfig, 
+    login, 
+    register, 
+    logout, 
+    syncNow, 
+    authToken, 
+    authEmail, 
+    syncStatus 
+  } = useConfig();
   const { wishes, removeWish, clearWishes, isDanmakuEnabled, toggleDanmaku } = useDanmaku();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('general'); // 'general' | 'gallery' | 'story' | 'wishes'
@@ -104,47 +128,13 @@ const SettingsPanel = () => {
     });
   };
 
-  // Story Helpers
-  const updateStoryEvent = (index, field, value) => {
-    applyConfigUpdate((prev) => {
-        const newEvents = [...prev.story.events];
-        newEvents[index] = { ...newEvents[index], [field]: value };
-        return {
-            ...prev,
-            story: {
-                ...prev.story,
-                events: newEvents
-            }
-        };
+  const handleAddStoryEvent = () => {
+    addStoryEvent({
+      year: new Date().getFullYear().toString(),
+      title: "New Chapter",
+      desc: "Description of this memorable event...",
+      image: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800"
     });
-  };
-
-  const removeStoryEvent = (index) => {
-    applyConfigUpdate((prev) => ({
-      ...prev,
-      story: {
-        ...prev.story,
-        events: prev.story.events.filter((_, i) => i !== index)
-      }
-    }));
-  };
-
-  const addStoryEvent = () => {
-    applyConfigUpdate((prev) => ({
-      ...prev,
-      story: {
-        ...prev.story,
-        events: [
-          ...prev.story.events,
-          {
-            year: new Date().getFullYear().toString(),
-            title: "New Chapter",
-            desc: "Description of this memorable event...",
-            image: "https://images.unsplash.com/photo-1511285560982-1356c11d4606?auto=format&fit=crop&q=80&w=800"
-          }
-        ]
-      }
-    }));
   };
 
 
@@ -397,7 +387,7 @@ const SettingsPanel = () => {
                              <div className="flex justify-between items-center mb-4 pb-2 border-b">
                                 <h3 className="font-bold text-gray-900">Manage Story Events</h3>
                                 <button 
-                                    onClick={addStoryEvent}
+                                    onClick={handleAddStoryEvent}
                                     className="text-sm text-primary flex items-center gap-1 hover:text-pink-600"
                                 >
                                     <Plus size={16} /> Add Event
@@ -405,10 +395,10 @@ const SettingsPanel = () => {
                              </div>
                              
                              <div className="space-y-6">
-                                 {localConfig.story.events.map((event, index) => (
-                                     <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
+                                 {config.story.events.map((event, index) => (
+                                     <div key={event.id || index} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
                                          <button 
-                                            onClick={() => removeStoryEvent(index)}
+                                            onClick={() => removeStoryEvent(event.id)}
                                             className="absolute top-2 right-2 p-1.5 bg-white text-gray-400 hover:text-red-500 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-10"
                                             title="Remove Event"
                                          >
@@ -423,7 +413,7 @@ const SettingsPanel = () => {
                                                  <ImageInput
                                                      label="Image URL"
                                                      value={event.image}
-                                                     onChange={(val) => updateStoryEvent(index, 'image', val)}
+                                                     onChange={(val) => updateStoryEventField(event.id, 'image', val)}
                                                  />
                                              </div>
                                          </div>
@@ -434,7 +424,7 @@ const SettingsPanel = () => {
                                                  <input 
                                                      type="text" 
                                                      value={event.year}
-                                                     onChange={(e) => updateStoryEvent(index, 'year', e.target.value)}
+                                                     onChange={(e) => updateStoryEventField(event.id, 'year', e.target.value)}
                                                      className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none"
                                                  />
                                              </div>
@@ -443,7 +433,7 @@ const SettingsPanel = () => {
                                                  <input 
                                                      type="text" 
                                                      value={event.title}
-                                                     onChange={(e) => updateStoryEvent(index, 'title', e.target.value)}
+                                                     onChange={(e) => updateStoryEventField(event.id, 'title', e.target.value)}
                                                      className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none"
                                                  />
                                              </div>
@@ -454,7 +444,7 @@ const SettingsPanel = () => {
                                             <textarea 
                                                 rows={2}
                                                 value={event.desc}
-                                                onChange={(e) => updateStoryEvent(index, 'desc', e.target.value)}
+                                                onChange={(e) => updateStoryEventField(event.id, 'desc', e.target.value)}
                                                 className="w-full p-1.5 text-sm border rounded focus:ring-primary focus:border-primary outline-none resize-none"
                                             />
                                          </div>

@@ -14,93 +14,111 @@ export const compareClock = (a, b) => {
   return a.clientId > b.clientId ? 1 : -1;
 };
 
-export const ensureGalleryCrdt = (config, clientId) => {
-  const gallery = config.gallery || {};
-  const images = Array.isArray(gallery.images) ? gallery.images : [];
-  const imageClocks = gallery.imageClocks || {};
-  const imageTombstones = gallery.imageTombstones || {};
-  const normalizedImages = images.map((img) => {
-    const id = img.id || createClientId();
-    const clocks = imageClocks[id] || {};
-    const nextClocks = {
-      src: clocks.src || { ts: 0, clientId },
-      caption: clocks.caption || { ts: 0, clientId },
-      date: clocks.date || { ts: 0, clientId }
-    };
-    imageClocks[id] = nextClocks;
-    return { ...img, id };
+export const ensureModuleCrdt = (config, moduleName, clientId) => {
+  const module = config[moduleName] || {};
+  const items = Array.isArray(module.items || module.images || module.events) ? (module.items || module.images || module.events) : [];
+  const clocks = module.clocks || (moduleName === 'gallery' ? module.imageClocks : {}) || {};
+  const tombstones = module.tombstones || (moduleName === 'gallery' ? module.imageTombstones : {}) || {};
+  
+  const normalizedItems = items.map((item) => {
+    const id = item.id || createClientId();
+    const itemClocks = clocks[id] || {};
+    // Ensure all fields have clocks
+    Object.keys(item).forEach(key => {
+      if (key !== 'id' && !itemClocks[key]) {
+        itemClocks[key] = { ts: 0, clientId };
+      }
+    });
+    clocks[id] = itemClocks;
+    return { ...item, id };
   });
+
   return {
     ...config,
-    gallery: {
-      ...gallery,
-      images: normalizedImages,
-      imageClocks,
-      imageTombstones
+    [moduleName]: {
+      ...module,
+      [moduleName === 'gallery' ? 'images' : (moduleName === 'story' ? 'events' : 'items')]: normalizedItems,
+      [moduleName === 'gallery' ? 'imageClocks' : 'clocks']: clocks,
+      [moduleName === 'gallery' ? 'imageTombstones' : 'tombstones']: tombstones
     }
   };
 };
 
-export const buildImagePatch = ({ action, imageId, field, value, image, clientId }) => {
+export const buildPatch = ({ module, action, itemId, field, value, item, clientId }) => {
   const ts = Date.now();
   const opId = `${clientId}-${ts}-${Math.random().toString(16).slice(2)}`;
   return {
     opId,
+    module, // 'gallery', 'story', etc.
     action,
-    imageId,
+    itemId,
     field,
     value,
-    image,
+    item,
     clock: { ts, clientId }
   };
 };
 
-export const applyImagePatch = (config, patch) => {
-  const gallery = config.gallery || {};
-  const images = Array.isArray(gallery.images) ? [...gallery.images] : [];
-  const imageClocks = { ...(gallery.imageClocks || {}) };
-  const imageTombstones = { ...(gallery.imageTombstones || {}) };
-  const tombstone = patch.imageId ? imageTombstones[patch.imageId] : null;
+export const applyPatch = (config, patch) => {
+  const moduleName = patch.module || 'gallery';
+  const module = config[moduleName] || {};
+  
+  const itemsKey = moduleName === 'gallery' ? 'images' : (moduleName === 'story' ? 'events' : 'items');
+  const clocksKey = moduleName === 'gallery' ? 'imageClocks' : 'clocks';
+  const tombstonesKey = moduleName === 'gallery' ? 'imageTombstones' : 'tombstones';
+
+  const items = Array.isArray(module[itemsKey]) ? [...module[itemsKey]] : [];
+  const clocks = { ...(module[clocksKey] || {}) };
+  const tombstones = { ...(module[tombstonesKey] || {}) };
+
+  const tombstone = patch.itemId ? tombstones[patch.itemId] : null;
   if (tombstone && compareClock(tombstone, patch.clock) >= 0) {
-    return { ...config, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+    return config;
   }
+
   if (patch.action === 'remove') {
-    imageTombstones[patch.imageId] = patch.clock;
-    const filtered = images.filter((img) => img.id !== patch.imageId);
-    return { ...config, gallery: { ...gallery, images: filtered, imageClocks, imageTombstones } };
+    tombstones[patch.itemId] = patch.clock;
+    const filtered = items.filter((item) => item.id !== patch.itemId);
+    return { ...config, [moduleName]: { ...module, [itemsKey]: filtered, [clocksKey]: clocks, [tombstonesKey]: tombstones } };
   }
+
   if (patch.action === 'add') {
-    const incoming = patch.image || {};
-    const id = patch.imageId || incoming.id || createClientId();
-    const existingIndex = images.findIndex((img) => img.id === id);
-    const nextImage = { ...incoming, id };
-    const nextClocks = {
-      src: patch.clock,
-      caption: patch.clock,
-      date: patch.clock
-    };
-    imageClocks[id] = { ...(imageClocks[id] || {}), ...nextClocks };
+    const incoming = patch.item || {};
+    const id = patch.itemId || incoming.id || createClientId();
+    const existingIndex = items.findIndex((item) => item.id === id);
+    const nextItem = { ...incoming, id };
+    
+    const itemClocks = clocks[id] || {};
+    Object.keys(nextItem).forEach(key => {
+      if (key !== 'id') itemClocks[key] = patch.clock;
+    });
+    clocks[id] = itemClocks;
+
     if (existingIndex >= 0) {
-      images[existingIndex] = { ...images[existingIndex], ...nextImage };
+      items[existingIndex] = { ...items[existingIndex], ...nextItem };
     } else {
-      images.push(nextImage);
+      items.push(nextItem);
     }
-    return { ...config, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+    return { ...config, [moduleName]: { ...module, [itemsKey]: items, [clocksKey]: clocks, [tombstonesKey]: tombstones } };
   }
+
   if (patch.action === 'update') {
-    const index = images.findIndex((img) => img.id === patch.imageId);
-    if (index === -1) {
-      return { ...config, gallery: { ...gallery, images, imageClocks, imageTombstones } };
-    }
-    const fieldClocks = imageClocks[patch.imageId] || {};
-    const existingClock = fieldClocks[patch.field];
+    const index = items.findIndex((item) => item.id === patch.itemId);
+    if (index === -1) return config;
+
+    const itemClocks = clocks[patch.itemId] || {};
+    const existingClock = itemClocks[patch.field];
     if (compareClock(patch.clock, existingClock) <= 0) {
-      return { ...config, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+      return config;
     }
-    const nextImage = { ...images[index], [patch.field]: patch.value };
-    images[index] = nextImage;
-    imageClocks[patch.imageId] = { ...fieldClocks, [patch.field]: patch.clock };
-    return { ...config, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+
+    const nextItem = { ...items[index], [patch.field]: patch.value };
+    items[index] = nextItem;
+    itemClocks[patch.field] = patch.clock;
+    clocks[patch.itemId] = itemClocks;
+
+    return { ...config, [moduleName]: { ...module, [itemsKey]: items, [clocksKey]: clocks, [tombstonesKey]: tombstones } };
   }
-  return { ...config, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+
+  return config;
 };

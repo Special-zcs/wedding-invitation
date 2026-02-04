@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { siteConfig as initialConfig } from '../config/siteConfig';
-import { applyImagePatch, buildImagePatch, createClientId, ensureGalleryCrdt } from '../utils/imageCrdt';
+import { applyPatch, buildPatch, createClientId, ensureModuleCrdt } from '../utils/imageCrdt';
 
 const ConfigContext = createContext();
 
@@ -48,7 +48,9 @@ export const ConfigProvider = ({ children }) => {
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem(CONFIG_KEY);
     const baseConfig = saved ? JSON.parse(saved) : initialConfig;
-    return ensureGalleryCrdt(baseConfig, clientId);
+    let normalized = ensureModuleCrdt(baseConfig, 'gallery', clientId);
+    normalized = ensureModuleCrdt(normalized, 'story', clientId);
+    return normalized;
   });
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
   const [authEmail, setAuthEmail] = useState(() => localStorage.getItem(AUTH_EMAIL_KEY) || '');
@@ -110,7 +112,8 @@ export const ConfigProvider = ({ children }) => {
 
   const applyRemoteSettings = useCallback((settings, meta) => {
     if (settings) {
-      const normalized = ensureGalleryCrdt(settings, clientId);
+      let normalized = ensureModuleCrdt(settings, 'gallery', clientId);
+      normalized = ensureModuleCrdt(normalized, 'story', clientId);
       setLocalConfig(normalized);
       setMeta(meta);
       setSyncStatus({ state: 'idle', message: '已同步', lastSyncAt: meta.updatedAt || Date.now() });
@@ -154,6 +157,8 @@ export const ConfigProvider = ({ children }) => {
     }
   }, [AUTH_TOKEN_KEY, apiRequest, applyRemoteSettings, authToken, clearPending, syncStatus.lastSyncAt]);
 
+  const lastPatchReceivedAt = useRef(0);
+
   const pullPublicSettings = useCallback(async (targetVersion) => {
     if (!navigator.onLine) {
       setSyncStatus({ state: 'offline', message: '离线模式', lastSyncAt: syncStatus.lastSyncAt });
@@ -162,6 +167,13 @@ export const ConfigProvider = ({ children }) => {
     if (targetVersion !== undefined && versionRef.current >= targetVersion) {
       return;
     }
+    
+    // If we just received a patch recently, delay the full pull slightly 
+    // to give the server DB time to settle and ensure we get the latest
+    if (Date.now() - lastPatchReceivedAt.current < 1000) {
+       await new Promise(r => setTimeout(r, 500));
+    }
+
     setSyncStatus({ state: 'syncing', message: '同步中', lastSyncAt: syncStatus.lastSyncAt });
     try {
       const res = await publicRequest('/public-settings', { method: 'GET' });
@@ -171,6 +183,10 @@ export const ConfigProvider = ({ children }) => {
       }
       const data = await res.json();
       if (data && data.settings) {
+        // Double check version again after fetch
+        if (targetVersion !== undefined && data.version < targetVersion) {
+           // Maybe retry or ignore
+        }
         applyRemoteSettings(data.settings, { version: data.version || 0, updatedAt: data.updatedAt || Date.now() });
         clearPending();
       } else {
@@ -277,7 +293,8 @@ export const ConfigProvider = ({ children }) => {
   }, [CONFLICT_KEY, applyRemoteSettings, clearPending, getMeta, publicRequest, setMeta, setPending, syncStatus.lastSyncAt]);
 
   const updateConfig = useCallback((newConfig) => {
-    const normalized = ensureGalleryCrdt(newConfig, clientId);
+    let normalized = ensureModuleCrdt(newConfig, 'gallery', clientId);
+    normalized = ensureModuleCrdt(normalized, 'story', clientId);
     latestConfigRef.current = normalized;
     setLocalConfig(normalized);
     const meta = getMeta();
@@ -294,14 +311,16 @@ export const ConfigProvider = ({ children }) => {
     }, 300);
   }, [authToken, clientId, getMeta, pushPublicSettings, pushSettings, setLocalConfig, setMeta, setPending]);
 
-  const applyImagePatchLocal = useCallback((patch, options = {}) => {
-    const baseConfig = ensureGalleryCrdt(latestConfigRef.current, clientId);
-    const nextConfig = applyImagePatch(baseConfig, patch);
+  const applyPatchLocal = useCallback((patch, options = {}) => {
+    let baseConfig = ensureModuleCrdt(latestConfigRef.current, 'gallery', clientId);
+    baseConfig = ensureModuleCrdt(baseConfig, 'story', clientId);
+    const nextConfig = applyPatch(baseConfig, patch);
     latestConfigRef.current = nextConfig;
     if (options.skipPush) {
       setLocalConfig(nextConfig);
       if (options.meta) {
         setMeta(options.meta);
+        versionRef.current = options.meta.version;
       } else {
         const meta = getMeta();
         setMeta({ version: meta.version || 0, updatedAt: options.updatedAt || meta.updatedAt || Date.now() });
@@ -312,34 +331,68 @@ export const ConfigProvider = ({ children }) => {
     updateConfig(nextConfig);
   }, [clientId, getMeta, setLocalConfig, setMeta, updateConfig]);
 
-  const emitImagePatch = useCallback((patch) => {
+  const emitPatch = useCallback((patch) => {
     if (!socketRef.current) return;
     const scope = authToken ? 'private' : 'public';
-    socketRef.current.emit('image_patch', { patch, scope });
-  }, [authToken]);
+    setSyncStatus(prev => ({ ...prev, state: 'syncing', message: '同步中...' }));
+    
+    socketRef.current.emit('image_patch', { patch, scope }, (response) => {
+      if (response && response.ok) {
+        const meta = { version: response.version, updatedAt: response.updatedAt };
+        setMeta(meta);
+        versionRef.current = meta.version;
+        setSyncStatus({ state: 'idle', message: '已同步', lastSyncAt: meta.updatedAt });
+      } else {
+        console.error('Failed to sync patch:', response?.error);
+        setSyncStatus(prev => ({ ...prev, state: 'error', message: '同步失败: ' + (response?.error || '未知错误') }));
+      }
+    });
+  }, [authToken, setMeta]);
 
   const updateGalleryImageField = useCallback((imageId, field, value) => {
-    const patch = buildImagePatch({ action: 'update', imageId, field, value, clientId });
-    applyImagePatchLocal(patch);
-    emitImagePatch(patch);
-  }, [applyImagePatchLocal, clientId, emitImagePatch]);
+    const patch = buildPatch({ module: 'gallery', action: 'update', itemId: imageId, field, value, clientId });
+    applyPatchLocal(patch);
+    emitPatch(patch);
+  }, [applyPatchLocal, clientId, emitPatch]);
 
   const removeGalleryImage = useCallback((imageId) => {
-    const patch = buildImagePatch({ action: 'remove', imageId, clientId });
-    applyImagePatchLocal(patch);
-    emitImagePatch(patch);
-  }, [applyImagePatchLocal, clientId, emitImagePatch]);
+    const patch = buildPatch({ module: 'gallery', action: 'remove', itemId: imageId, clientId });
+    applyPatchLocal(patch);
+    emitPatch(patch);
+  }, [applyPatchLocal, clientId, emitPatch]);
 
   const addGalleryImage = useCallback((image) => {
     const id = image?.id || createClientId();
     const nextImage = { ...image, id };
-    const patch = buildImagePatch({ action: 'add', imageId: id, image: nextImage, clientId });
-    applyImagePatchLocal(patch);
-    emitImagePatch(patch);
-  }, [applyImagePatchLocal, clientId, emitImagePatch]);
+    const patch = buildPatch({ module: 'gallery', action: 'add', itemId: id, item: nextImage, clientId });
+    applyPatchLocal(patch);
+    emitPatch(patch);
+  }, [applyPatchLocal, clientId, emitPatch]);
+
+  const updateStoryEventField = useCallback((eventId, field, value) => {
+    const patch = buildPatch({ module: 'story', action: 'update', itemId: eventId, field, value, clientId });
+    applyPatchLocal(patch);
+    emitPatch(patch);
+  }, [applyPatchLocal, clientId, emitPatch]);
+
+  const removeStoryEvent = useCallback((eventId) => {
+    const patch = buildPatch({ module: 'story', action: 'remove', itemId: eventId, clientId });
+    applyPatchLocal(patch);
+    emitPatch(patch);
+  }, [applyPatchLocal, clientId, emitPatch]);
+
+  const addStoryEvent = useCallback((event) => {
+    const id = event?.id || createClientId();
+    const nextEvent = { ...event, id };
+    const patch = buildPatch({ module: 'story', action: 'add', itemId: id, item: nextEvent, clientId });
+    applyPatchLocal(patch);
+    emitPatch(patch);
+  }, [applyPatchLocal, clientId, emitPatch]);
 
   const resetConfig = useCallback(() => {
-    setConfig(ensureGalleryCrdt(initialConfig, clientId));
+    let normalized = ensureModuleCrdt(initialConfig, 'gallery', clientId);
+    normalized = ensureModuleCrdt(normalized, 'story', clientId);
+    setConfig(normalized);
     localStorage.removeItem(CONFIG_KEY);
     setMeta({ version: 0, updatedAt: 0 });
   }, [CONFIG_KEY, clientId, setMeta]);
@@ -444,8 +497,9 @@ export const ConfigProvider = ({ children }) => {
 
     socket.on('image_patch', (data) => {
       if (!data || !data.patch) return;
+      lastPatchReceivedAt.current = Date.now();
       const meta = data.version ? { version: data.version, updatedAt: data.updatedAt || Date.now() } : null;
-      applyImagePatchLocal(data.patch, { skipPush: true, meta });
+      applyPatchLocal(data.patch, { skipPush: true, meta });
     });
 
     socket.on('connect_error', (err) => {
@@ -458,7 +512,7 @@ export const ConfigProvider = ({ children }) => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [authToken, pullPublicSettings, pullSettings, SOCKET_BASE, applyImagePatchLocal]);
+  }, [authToken, pullPublicSettings, pullSettings, SOCKET_BASE, applyPatchLocal]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -487,6 +541,9 @@ export const ConfigProvider = ({ children }) => {
         updateGalleryImageField,
         addGalleryImage,
         removeGalleryImage,
+        updateStoryEventField,
+        addStoryEvent,
+        removeStoryEvent,
         resetConfig,
         login,
         register,

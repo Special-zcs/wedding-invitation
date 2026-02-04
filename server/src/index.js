@@ -14,7 +14,8 @@ const io = new Server(httpServer, {
   cors: {
     origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'PUT']
-  }
+  },
+  maxHttpBufferSize: 50 * 1024 * 1024 // 50MB
 });
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 const dataDir = path.join(process.cwd(), 'server', 'data');
@@ -113,54 +114,68 @@ const compareClock = (a, b) => {
   return a.clientId > b.clientId ? 1 : -1;
 };
 
-const applyImagePatch = (settings, patch) => {
-  const gallery = settings.gallery || {};
-  const images = Array.isArray(gallery.images) ? [...gallery.images] : [];
-  const imageClocks = { ...(gallery.imageClocks || {}) };
-  const imageTombstones = { ...(gallery.imageTombstones || {}) };
-  const tombstone = patch.imageId ? imageTombstones[patch.imageId] : null;
+const applyPatch = (settings, patch) => {
+  const moduleName = patch.module || 'gallery';
+  const module = settings[moduleName] || {};
+  
+  const itemsKey = moduleName === 'gallery' ? 'images' : (moduleName === 'story' ? 'events' : 'items');
+  const clocksKey = moduleName === 'gallery' ? 'imageClocks' : 'clocks';
+  const tombstonesKey = moduleName === 'gallery' ? 'imageTombstones' : 'tombstones';
+
+  const items = Array.isArray(module[itemsKey]) ? [...module[itemsKey]] : [];
+  const clocks = { ...(module[clocksKey] || {}) };
+  const tombstones = { ...(module[tombstonesKey] || {}) };
+
+  const tombstone = patch.itemId ? tombstones[patch.itemId] : null;
   if (tombstone && compareClock(tombstone, patch.clock) >= 0) {
-    return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+    return settings;
   }
+
   if (patch.action === 'remove') {
-    imageTombstones[patch.imageId] = patch.clock;
-    const filtered = images.filter((img) => img.id !== patch.imageId);
-    return { ...settings, gallery: { ...gallery, images: filtered, imageClocks, imageTombstones } };
+    tombstones[patch.itemId] = patch.clock;
+    const filtered = items.filter((item) => item.id !== patch.itemId);
+    return { ...settings, [moduleName]: { ...module, [itemsKey]: filtered, [clocksKey]: clocks, [tombstonesKey]: tombstones } };
   }
+
   if (patch.action === 'add') {
-    const incoming = patch.image || {};
-    const id = patch.imageId || incoming.id || createClientId();
-    const existingIndex = images.findIndex((img) => img.id === id);
-    const nextImage = { ...incoming, id };
-    const nextClocks = {
-      src: patch.clock,
-      caption: patch.clock,
-      date: patch.clock
-    };
-    imageClocks[id] = { ...(imageClocks[id] || {}), ...nextClocks };
+    const incoming = patch.item || {};
+    const id = patch.itemId || incoming.id || createClientId();
+    const existingIndex = items.findIndex((item) => item.id === id);
+    const nextItem = { ...incoming, id };
+    
+    const itemClocks = clocks[id] || {};
+    Object.keys(nextItem).forEach(key => {
+      if (key !== 'id') itemClocks[key] = patch.clock;
+    });
+    clocks[id] = itemClocks;
+
     if (existingIndex >= 0) {
-      images[existingIndex] = { ...images[existingIndex], ...nextImage };
+      items[existingIndex] = { ...items[existingIndex], ...nextItem };
     } else {
-      images.push(nextImage);
+      items.push(nextItem);
     }
-    return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+    return { ...settings, [moduleName]: { ...module, [itemsKey]: items, [clocksKey]: clocks, [tombstonesKey]: tombstones } };
   }
+
   if (patch.action === 'update') {
-    const index = images.findIndex((img) => img.id === patch.imageId);
-    if (index === -1) {
-      return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
-    }
-    const fieldClocks = imageClocks[patch.imageId] || {};
-    const existingClock = fieldClocks[patch.field];
+    const index = items.findIndex((item) => item.id === patch.itemId);
+    if (index === -1) return settings;
+
+    const itemClocks = clocks[patch.itemId] || {};
+    const existingClock = itemClocks[patch.field];
     if (compareClock(patch.clock, existingClock) <= 0) {
-      return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+      return settings;
     }
-    const nextImage = { ...images[index], [patch.field]: patch.value };
-    images[index] = nextImage;
-    imageClocks[patch.imageId] = { ...fieldClocks, [patch.field]: patch.clock };
-    return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+
+    const nextItem = { ...items[index], [patch.field]: patch.value };
+    items[index] = nextItem;
+    itemClocks[patch.field] = patch.clock;
+    clocks[patch.itemId] = itemClocks;
+
+    return { ...settings, [moduleName]: { ...module, [itemsKey]: items, [clocksKey]: clocks, [tombstonesKey]: tombstones } };
   }
-  return { ...settings, gallery: { ...gallery, images, imageClocks, imageTombstones } };
+
+  return settings;
 };
 
 const signToken = (user) => {
@@ -210,31 +225,49 @@ io.on('connection', (socket) => {
     console.log('Public client connected to socket');
   }
 
-  socket.on('image_patch', (payload) => {
+  socket.on('image_patch', (payload, callback) => {
     const patch = payload?.patch;
     if (!patch || !patch.action || !patch.clock || typeof patch.clock.ts !== 'number' || !patch.clock.clientId) {
+      if (typeof callback === 'function') callback({ ok: false, error: 'invalid_patch' });
       return;
     }
     if (payload?.scope === 'private' && !socket.user?.userId) {
+      if (typeof callback === 'function') callback({ ok: false, error: 'unauthorized' });
       return;
     }
-    const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
-    const baseSettings = row
-      ? decryptSettings(row)
-      : { gallery: { images: [], imageClocks: {}, imageTombstones: {} } };
-    const nextSettings = applyImagePatch(baseSettings, patch);
-    const now = Date.now();
-    const nextVersion = row ? (row.version || 0) + 1 : 1;
-    const encrypted = encryptSettings(nextSettings);
-    if (!row) {
-      db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
-        .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
-    } else {
-      db.prepare('UPDATE public_settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE id = 1')
-        .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+    
+    try {
+      const row = db.prepare('SELECT * FROM public_settings WHERE id = 1').get();
+      const baseSettings = row
+        ? decryptSettings(row)
+        : { gallery: { images: [], imageClocks: {}, imageTombstones: {} } };
+      
+      const nextSettings = applyPatch(baseSettings, patch);
+      const now = Date.now();
+      const nextVersion = row ? (row.version || 0) + 1 : 1;
+      const encrypted = encryptSettings(nextSettings);
+      
+      if (!row) {
+        db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
+          .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+      } else {
+        db.prepare('UPDATE public_settings SET version = ?, updated_at = ?, iv = ?, tag = ?, data = ? WHERE id = 1')
+          .run(nextVersion, now, encrypted.iv, encrypted.tag, encrypted.data);
+      }
+      
+      // Broadcast the patch to everyone EXCEPT the sender to avoid double-application
+      socket.to('global').emit('image_patch', { patch, version: nextVersion, updatedAt: now });
+      
+      // Notify everyone that settings were updated (for those not using patches or for other modules)
+      io.to('global').emit('settings_updated', { version: nextVersion, updatedAt: now });
+      
+      if (typeof callback === 'function') {
+        callback({ ok: true, version: nextVersion, updatedAt: now });
+      }
+    } catch (err) {
+      console.error('Error applying image patch:', err);
+      if (typeof callback === 'function') callback({ ok: false, error: 'server_error' });
     }
-    io.to('global').emit('image_patch', { patch, version: nextVersion, updatedAt: now });
-    io.to('global').emit('settings_updated', { version: nextVersion, updatedAt: now });
   });
 
   socket.on('disconnect', () => {
