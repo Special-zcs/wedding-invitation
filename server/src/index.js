@@ -34,10 +34,8 @@ if (!encryptionKeyRaw) {
   throw new Error('SETTINGS_ENCRYPTION_KEY is required');
 }
 
-const encryptionKey = Buffer.from(encryptionKeyRaw, 'base64');
-if (encryptionKey.length !== 32) {
-  throw new Error('SETTINGS_ENCRYPTION_KEY must be 32 bytes in base64');
-}
+// Use SHA-256 to ensure the encryption key is exactly 32 bytes
+const encryptionKey = crypto.createHash('sha256').update(encryptionKeyRaw).digest();
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
