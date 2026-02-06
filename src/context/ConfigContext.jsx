@@ -3,6 +3,18 @@ import { io } from 'socket.io-client';
 import { siteConfig as initialConfig } from '../config/siteConfig';
 import { applyPatch, buildPatch, createClientId, ensureModuleCrdt } from '../utils/imageCrdt';
 
+const mergeDefaults = (defaults, override) => {
+  if (override === undefined || override === null) return defaults;
+  if (Array.isArray(override)) return override;
+  if (typeof override !== 'object') return override;
+  const base = (defaults && typeof defaults === 'object' && !Array.isArray(defaults)) ? defaults : {};
+  const result = { ...base };
+  Object.keys(override).forEach((key) => {
+    result[key] = mergeDefaults(base[key], override[key]);
+  });
+  return result;
+};
+
 const ConfigContext = createContext();
 
 export const ConfigProvider = ({ children }) => {
@@ -46,8 +58,8 @@ export const ConfigProvider = ({ children }) => {
   const [clientId] = useState(() => resolveClientId());
 
   const [config, setConfig] = useState(() => {
-    const saved = localStorage.getItem(CONFIG_KEY);
-    const baseConfig = saved ? JSON.parse(saved) : initialConfig;
+    const saved = safeParse(localStorage.getItem(CONFIG_KEY), null);
+    const baseConfig = mergeDefaults(initialConfig, saved);
     let normalized = ensureModuleCrdt(baseConfig, 'gallery', clientId);
     normalized = ensureModuleCrdt(normalized, 'story', clientId);
     return normalized;
@@ -112,7 +124,8 @@ export const ConfigProvider = ({ children }) => {
 
   const applyRemoteSettings = useCallback((settings, meta) => {
     if (settings) {
-      let normalized = ensureModuleCrdt(settings, 'gallery', clientId);
+      const merged = mergeDefaults(initialConfig, settings);
+      let normalized = ensureModuleCrdt(merged, 'gallery', clientId);
       normalized = ensureModuleCrdt(normalized, 'story', clientId);
       setLocalConfig(normalized);
       setMeta(meta);

@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { siteConfig } from '../../src/config/siteConfig.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,23 +64,24 @@ db.exec(`
   );
 `);
 
+const mergeDefaults = (defaults, override) => {
+  if (override === undefined || override === null) return defaults;
+  if (Array.isArray(override)) return override;
+  if (typeof override !== 'object') return override;
+  const base = (defaults && typeof defaults === 'object' && !Array.isArray(defaults)) ? defaults : {};
+  const result = { ...base };
+  Object.keys(override).forEach((key) => {
+    result[key] = mergeDefaults(base[key], override[key]);
+  });
+  return result;
+};
+
 // Initialize default settings if not exists
 const initDefaultSettings = () => {
   const row = db.prepare('SELECT id FROM public_settings WHERE id = 1').get();
   if (!row) {
     console.log('Initializing default settings...');
-    const defaultSettings = {
-      names: { groom: "Groom", bride: "Bride" },
-      date: "2025-01-01",
-      location: "Wedding Venue",
-      gallery: { images: [], imageClocks: {}, imageTombstones: {} },
-      story: { events: [] },
-      wishes: { messages: [] },
-      theme: {
-        colors: { primary: "#e8a8bf", secondary: "#fdf2f8", accent: "#d4af37", text: "#4a4a4a" },
-        animation: { enableParticles: true, particleCount: 40 }
-      }
-    };
+    const defaultSettings = mergeDefaults(siteConfig, null);
     const encrypted = encryptSettings(defaultSettings);
     const now = Date.now();
     db.prepare('INSERT INTO public_settings (id, version, updated_at, iv, tag, data) VALUES (1, ?, ?, ?, ?, ?)')
